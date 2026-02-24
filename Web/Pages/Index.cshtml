@@ -1,0 +1,227 @@
+@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Upload";
+    ViewData["Page"] = "home";
+}
+
+<div class="page-hero">
+    <div class="hero-label">DOCUMENT INGESTION</div>
+    <h1 class="hero-title">Upload &amp; Index</h1>
+    <p class="hero-sub">Drop a PDF or text file. It gets extracted, chunked, embedded, and stored in your local vector database — ready to query.</p>
+</div>
+
+<div class="page-content">
+    <div class="upload-zone" id="uploadZone">
+        <form id="uploadForm" enctype="multipart/form-data">
+            <input type="file" id="fileInput" name="file" accept=".pdf,.txt,.md" hidden />
+            <div class="drop-area" id="dropArea">
+                <div class="drop-icon">⬡</div>
+                <div class="drop-title">Drop your document here</div>
+                <div class="drop-sub">PDF, TXT, or Markdown · Max 50MB</div>
+                <button type="button" class="btn-outline" onclick="document.getElementById('fileInput').click()">
+                    Browse Files
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <div class="file-preview hidden" id="filePreview">
+        <div class="file-card">
+            <div class="file-card-icon">▤</div>
+            <div class="file-card-info">
+                <div class="file-card-name" id="fileName">—</div>
+                <div class="file-card-meta" id="fileMeta">—</div>
+            </div>
+            <button class="btn-ghost" id="clearFile">✕</button>
+        </div>
+        <button class="btn-primary" id="uploadBtn">
+            <span class="btn-text">Index Document</span>
+            <span class="btn-icon">→</span>
+        </button>
+    </div>
+
+    <div class="result-panel hidden" id="resultPanel">
+        <div class="result-header">
+            <span class="result-badge success" id="resultBadge">INDEXED</span>
+            <span class="result-title" id="resultTitle">—</span>
+        </div>
+        <div class="result-grid">
+            <div class="result-stat">
+                <div class="result-stat-val" id="resultChunks">—</div>
+                <div class="result-stat-label">Chunks</div>
+            </div>
+            <div class="result-stat">
+                <div class="result-stat-val" id="resultId">—</div>
+                <div class="result-stat-label">Document ID</div>
+            </div>
+            <div class="result-stat">
+                <div class="result-stat-val" id="resultStatus">—</div>
+                <div class="result-stat-label">Status</div>
+            </div>
+        </div>
+        <div class="result-actions">
+            <a href="/Ask" class="btn-primary">Ask a Question →</a>
+            <button class="btn-outline" id="uploadAnother">Upload Another</button>
+        </div>
+    </div>
+
+    <div class="error-panel hidden" id="errorPanel">
+        <div class="error-icon">⚠</div>
+        <div class="error-text" id="errorText">Something went wrong.</div>
+        <button class="btn-outline" id="errorRetry">Try Again</button>
+    </div>
+
+    <div class="progress-panel hidden" id="progressPanel">
+        <div class="progress-label" id="progressLabel">Extracting text...</div>
+        <div class="progress-bar">
+            <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <div class="progress-steps">
+            <span class="step active" id="step1">Extract</span>
+            <span class="step-arrow">→</span>
+            <span class="step" id="step2">Chunk</span>
+            <span class="step-arrow">→</span>
+            <span class="step" id="step3">Embed</span>
+            <span class="step-arrow">→</span>
+            <span class="step" id="step4">Index</span>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+const API = '';
+
+const dropArea = document.getElementById('dropArea');
+const fileInput = document.getElementById('fileInput');
+const filePreview = document.getElementById('filePreview');
+const fileName = document.getElementById('fileName');
+const fileMeta = document.getElementById('fileMeta');
+const uploadBtn = document.getElementById('uploadBtn');
+const resultPanel = document.getElementById('resultPanel');
+const errorPanel = document.getElementById('errorPanel');
+const progressPanel = document.getElementById('progressPanel');
+const uploadZone = document.getElementById('uploadZone');
+
+let selectedFile = null;
+
+function formatBytes(b) {
+    if (b < 1024) return b + ' B';
+    if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+    return (b/1048576).toFixed(1) + ' MB';
+}
+
+function showFile(file) {
+    selectedFile = file;
+    fileName.textContent = file.name;
+    fileMeta.textContent = `${formatBytes(file.size)} · ${file.type || 'text/plain'}`;
+    filePreview.classList.remove('hidden');
+    uploadZone.classList.add('has-file');
+    resultPanel.classList.add('hidden');
+    errorPanel.classList.add('hidden');
+}
+
+fileInput.addEventListener('change', e => {
+    if (e.target.files[0]) showFile(e.target.files[0]);
+});
+
+['dragover','dragenter'].forEach(ev => {
+    dropArea.addEventListener(ev, e => { e.preventDefault(); dropArea.classList.add('drag-over'); });
+});
+['dragleave','drop'].forEach(ev => {
+    dropArea.addEventListener(ev, e => { e.preventDefault(); dropArea.classList.remove('drag-over'); });
+});
+dropArea.addEventListener('drop', e => {
+    const file = e.dataTransfer.files[0];
+    if (file) showFile(file);
+});
+
+document.getElementById('clearFile').addEventListener('click', () => {
+    selectedFile = null;
+    fileInput.value = '';
+    filePreview.classList.add('hidden');
+    uploadZone.classList.remove('has-file');
+});
+
+document.getElementById('uploadAnother').addEventListener('click', () => {
+    selectedFile = null;
+    fileInput.value = '';
+    filePreview.classList.add('hidden');
+    resultPanel.classList.add('hidden');
+    uploadZone.classList.remove('has-file');
+});
+
+document.getElementById('errorRetry').addEventListener('click', () => {
+    errorPanel.classList.add('hidden');
+    filePreview.classList.remove('hidden');
+});
+
+function setProgress(pct, label, step) {
+    document.getElementById('progressFill').style.width = pct + '%';
+    document.getElementById('progressLabel').textContent = label;
+    ['step1','step2','step3','step4'].forEach((s,i) => {
+        const el = document.getElementById(s);
+        el.classList.toggle('active', i <= step);
+        el.classList.toggle('done', i < step);
+    });
+}
+
+uploadBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+
+    filePreview.classList.add('hidden');
+    progressPanel.classList.remove('hidden');
+    setProgress(15, 'Extracting text from document...', 0);
+
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+
+    // Animate progress while waiting
+    let prog = 15;
+    const steps = [
+        [30, 'Chunking into segments...', 1],
+        [55, 'Generating embeddings...', 2],
+        [80, 'Indexing into vector DB...', 3],
+    ];
+    let stepIdx = 0;
+    const ticker = setInterval(() => {
+        if (stepIdx < steps.length) {
+            const [p, lbl, s] = steps[stepIdx++];
+            setProgress(p, lbl, s);
+        }
+    }, 1800);
+
+    try {
+        const resp = await fetch('/api/proxy/upload', {
+            method: 'POST',
+            body: formData
+        });
+        clearInterval(ticker);
+
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({ error: 'Upload failed' }));
+            throw new Error(err.error || 'Upload failed');
+        }
+
+        setProgress(100, 'Done!', 3);
+        await new Promise(r => setTimeout(r, 600));
+
+        const data = await resp.json();
+        progressPanel.classList.add('hidden');
+        resultPanel.classList.remove('hidden');
+
+        document.getElementById('resultTitle').textContent = data.fileName;
+        document.getElementById('resultChunks').textContent = data.chunkCount;
+        document.getElementById('resultId').textContent = data.documentId.substring(0,8) + '…';
+        document.getElementById('resultStatus').textContent = data.status;
+
+    } catch (err) {
+        clearInterval(ticker);
+        progressPanel.classList.add('hidden');
+        errorPanel.classList.remove('hidden');
+        document.getElementById('errorText').textContent = err.message;
+    }
+});
+</script>
+}

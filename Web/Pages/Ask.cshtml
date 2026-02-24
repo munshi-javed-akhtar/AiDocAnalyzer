@@ -1,0 +1,176 @@
+@page
+@model AskModel
+@{
+    ViewData["Title"] = "Ask AI";
+    ViewData["Page"] = "ask";
+}
+
+<div class="page-hero">
+    <div class="hero-label">RAG PIPELINE</div>
+    <h1 class="hero-title">Ask the AI</h1>
+    <p class="hero-sub">Ask any question. The system retrieves relevant context from your documents and feeds it to a local LLM to generate a grounded answer.</p>
+</div>
+
+<div class="page-content ask-layout">
+    <div class="ask-input-section">
+        <div class="ask-box">
+            <textarea id="questionInput" class="ask-textarea" 
+                      placeholder="What does the document say about...?"
+                      rows="3"></textarea>
+            <div class="ask-footer">
+                <div class="ask-options">
+                    <span class="option-label">Context chunks</span>
+                    <div class="option-pills">
+                        <button class="pill active" data-val="3">3</button>
+                        <button class="pill" data-val="5">5</button>
+                        <button class="pill" data-val="8">8</button>
+                    </div>
+                </div>
+                <button class="btn-primary" id="askBtn">
+                    Ask AI <span>⟶</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="ask-state" id="askEmpty">
+        <div class="ask-empty-grid">
+            <div class="ask-example" onclick="fillExample(this)">What are the main topics covered?</div>
+            <div class="ask-example" onclick="fillExample(this)">Summarize the key findings.</div>
+            <div class="ask-example" onclick="fillExample(this)">What conclusions were drawn?</div>
+            <div class="ask-example" onclick="fillExample(this)">List the recommendations made.</div>
+        </div>
+    </div>
+
+    <div class="ask-state hidden" id="askLoading">
+        <div class="thinking-box">
+            <div class="thinking-dots">
+                <span></span><span></span><span></span>
+            </div>
+            <div class="thinking-steps" id="thinkingSteps">
+                <div class="thinking-step active" id="ts1">Embedding question...</div>
+                <div class="thinking-step" id="ts2">Retrieving context...</div>
+                <div class="thinking-step" id="ts3">Generating answer...</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="answer-panel hidden" id="answerPanel">
+        <div class="answer-header">
+            <span class="answer-label">AI ANSWER</span>
+            <button class="btn-ghost" id="copyAnswer" title="Copy answer">⎘</button>
+        </div>
+        <div class="answer-text" id="answerText"></div>
+        <div class="answer-divider">
+            <span>Sources used</span>
+        </div>
+        <div class="sources-list" id="sourcesList"></div>
+        <div class="answer-actions">
+            <button class="btn-outline" id="askAnother">Ask Another Question</button>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+let topK = 3;
+
+document.querySelectorAll('.pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+        document.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
+        pill.classList.add('active');
+        topK = parseInt(pill.dataset.val);
+    });
+});
+
+function fillExample(el) {
+    document.getElementById('questionInput').value = el.textContent;
+    document.getElementById('questionInput').focus();
+}
+
+document.getElementById('questionInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) doAsk();
+});
+document.getElementById('askBtn').addEventListener('click', doAsk);
+
+document.getElementById('askAnother').addEventListener('click', () => {
+    document.getElementById('answerPanel').classList.add('hidden');
+    document.getElementById('askEmpty').classList.remove('hidden');
+    document.getElementById('questionInput').value = '';
+    document.getElementById('questionInput').focus();
+});
+
+document.getElementById('copyAnswer').addEventListener('click', () => {
+    const text = document.getElementById('answerText').textContent;
+    navigator.clipboard.writeText(text);
+    document.getElementById('copyAnswer').textContent = '✓';
+    setTimeout(() => document.getElementById('copyAnswer').textContent = '⎘', 2000);
+});
+
+async function doAsk() {
+    const question = document.getElementById('questionInput').value.trim();
+    if (!question) return;
+
+    document.getElementById('askEmpty').classList.add('hidden');
+    document.getElementById('answerPanel').classList.add('hidden');
+    document.getElementById('askLoading').classList.remove('hidden');
+
+    // Animate thinking steps
+    let stepIdx = 0;
+    const stepIds = ['ts1','ts2','ts3'];
+    const stepTick = setInterval(() => {
+        if (stepIdx > 0) document.getElementById(stepIds[stepIdx-1]).classList.remove('active');
+        if (stepIdx < stepIds.length) {
+            document.getElementById(stepIds[stepIdx]).classList.add('active');
+            stepIdx++;
+        }
+    }, 2000);
+
+    try {
+        const resp = await fetch('/api/proxy/ask', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question, topK })
+        });
+
+        clearInterval(stepTick);
+        const data = await resp.json();
+
+        document.getElementById('askLoading').classList.add('hidden');
+        document.getElementById('answerPanel').classList.remove('hidden');
+
+        // Type-write the answer
+        const answerEl = document.getElementById('answerText');
+        answerEl.textContent = '';
+        const answer = data.answer || 'No answer returned.';
+        let i = 0;
+        const typer = setInterval(() => {
+            answerEl.textContent += answer[i++];
+            if (i >= answer.length) clearInterval(typer);
+        }, 12);
+
+        // Sources
+        const sourcesList = document.getElementById('sourcesList');
+        sourcesList.innerHTML = '';
+        (data.sources || []).forEach((src, idx) => {
+            const score = Math.round(src.score * 100);
+            sourcesList.innerHTML += `
+                <div class="source-chip">
+                    <span class="source-num">${idx + 1}</span>
+                    <span class="source-excerpt">${escapeHtml(src.text.substring(0, 120))}…</span>
+                    <span class="source-score">${score}%</span>
+                </div>`;
+        });
+
+    } catch (err) {
+        clearInterval(stepTick);
+        document.getElementById('askLoading').classList.add('hidden');
+        document.getElementById('askEmpty').classList.remove('hidden');
+    }
+}
+
+function escapeHtml(t) {
+    return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+}

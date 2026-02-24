@@ -1,0 +1,131 @@
+@page
+@model SearchModel
+@{
+    ViewData["Title"] = "Search";
+    ViewData["Page"] = "search";
+}
+
+<div class="page-hero">
+    <div class="hero-label">SEMANTIC RETRIEVAL</div>
+    <h1 class="hero-title">Search Docs</h1>
+    <p class="hero-sub">Find relevant passages across all indexed documents using vector similarity search.</p>
+</div>
+
+<div class="page-content">
+    <div class="search-box">
+        <div class="search-input-wrap">
+            <span class="search-icon">⌕</span>
+            <input type="text" id="searchInput" class="search-input" 
+                   placeholder="What are you looking for?" 
+                   autocomplete="off" />
+            <button class="search-submit" id="searchBtn">Search</button>
+        </div>
+        <div class="search-options">
+            <label class="option-label">Results</label>
+            <div class="option-pills">
+                <button class="pill active" data-val="3">3</button>
+                <button class="pill" data-val="5">5</button>
+                <button class="pill" data-val="10">10</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="search-state" id="searchEmpty">
+        <div class="state-icon">◈</div>
+        <div class="state-text">Enter a query to search your documents</div>
+    </div>
+
+    <div class="search-state hidden" id="searchLoading">
+        <div class="loader"></div>
+        <div class="state-text">Searching vector space...</div>
+    </div>
+
+    <div class="search-state hidden" id="searchNoResults">
+        <div class="state-icon">∅</div>
+        <div class="state-text">No relevant chunks found.<br>Try uploading more documents.</div>
+    </div>
+
+    <div class="results-container hidden" id="resultsContainer">
+        <div class="results-header">
+            <span id="resultsCount">0 results</span>
+            <span class="results-query" id="resultsQuery"></span>
+        </div>
+        <div class="results-list" id="resultsList"></div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+let topK = 3;
+
+document.querySelectorAll('.pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+        document.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
+        pill.classList.add('active');
+        topK = parseInt(pill.dataset.val);
+    });
+});
+
+document.getElementById('searchInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') doSearch();
+});
+document.getElementById('searchBtn').addEventListener('click', doSearch);
+
+async function doSearch() {
+    const query = document.getElementById('searchInput').value.trim();
+    if (!query) return;
+
+    document.getElementById('searchEmpty').classList.add('hidden');
+    document.getElementById('searchNoResults').classList.add('hidden');
+    document.getElementById('resultsContainer').classList.add('hidden');
+    document.getElementById('searchLoading').classList.remove('hidden');
+
+    try {
+        const resp = await fetch('/api/proxy/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query, topK })
+        });
+
+        const data = await resp.json();
+        document.getElementById('searchLoading').classList.add('hidden');
+
+        const chunks = data.chunks || [];
+        if (chunks.length === 0) {
+            document.getElementById('searchNoResults').classList.remove('hidden');
+            return;
+        }
+
+        document.getElementById('resultsCount').textContent = `${chunks.length} chunk${chunks.length > 1 ? 's' : ''} found`;
+        document.getElementById('resultsQuery').textContent = `"${query}"`;
+
+        const list = document.getElementById('resultsList');
+        list.innerHTML = '';
+        chunks.forEach((chunk, i) => {
+            const score = Math.round(chunk.score * 100);
+            const scoreClass = score >= 80 ? 'high' : score >= 60 ? 'mid' : 'low';
+            list.innerHTML += `
+                <div class="result-chunk" style="animation-delay:${i * 80}ms">
+                    <div class="chunk-header">
+                        <span class="chunk-num">#${i + 1}</span>
+                        <span class="chunk-score ${scoreClass}">${score}% match</span>
+                        <span class="chunk-docid">doc: ${chunk.documentId.substring(0,8)}…</span>
+                    </div>
+                    <div class="chunk-text">${escapeHtml(chunk.text)}</div>
+                </div>`;
+        });
+
+        document.getElementById('resultsContainer').classList.remove('hidden');
+
+    } catch (err) {
+        document.getElementById('searchLoading').classList.add('hidden');
+        document.getElementById('searchEmpty').classList.remove('hidden');
+        document.getElementById('searchEmpty').querySelector('.state-text').textContent = 'Error: ' + err.message;
+    }
+}
+
+function escapeHtml(t) {
+    return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+}
